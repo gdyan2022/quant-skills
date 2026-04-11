@@ -1,0 +1,7 @@
+.DS_Store
+*.log
+__pycache__/
+*.pyc
+
+# 通配所有子目录的 .env
+**/.env
