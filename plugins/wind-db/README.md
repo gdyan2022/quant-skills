@@ -58,13 +58,15 @@
 /plugin install wind-db@quant-skills
 ```
 
-然后跑一次配置向导（会话里）：
+然后在 Claude Code 会话里跑：
 
-```bash
-bash "$CLAUDE_PLUGIN_ROOT/scripts/install.sh"
+```
+/wind-db:setup
 ```
 
-向导会：从 `.env.example` 复制 `.env`（放在 plugin 持久化目录，升级不丢）→ 交互式收集数据库/字典凭据（密码隐藏，回车保默认）→ 可选注册 `dbhub-wind` MCP。**重启 Claude Code** 让 MCP 生效。
+Claude 作为向导通过对话收集数据库/字典凭据，最后写入 `.env`（放在 plugin 持久化目录，升级不丢）并可选注册 `dbhub-wind` MCP。**重启 Claude Code** 让 MCP 生效。
+
+> 老的交互式 bash 向导 `bash "$CLAUDE_PLUGIN_ROOT/scripts/install.sh"` 依然保留，但**需要真实终端 tty**；Claude 会话内推荐用 `/wind-db:setup`。
 
 ### 方式二：手动 clone + 符号链接（开发者模式）
 
