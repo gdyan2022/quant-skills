@@ -50,45 +50,38 @@
 
 ## 安装
 
-### 1. 克隆 skills 仓库 + 创建符号链接
+### 1. 克隆 quant-skills 仓库 + 创建符号链接
 
 ```bash
-# 克隆整个 skills 集合到任意路径（例子用 ~/workspace）
-git clone https://github.com/YOUR_USERNAME/skills.git ~/workspace/skills
+# 克隆整个 quant-skills 集合到任意路径（例子用 ~/workspace）
+git clone https://github.com/YOUR_USERNAME/quant-skills.git ~/workspace/quant-skills
 
 # 把 wind-db 子目录符号链接进 Claude Code 的 skill 目录
-ln -s ~/workspace/skills/wind-db ~/.claude/skills/wind-db
+ln -s ~/workspace/quant-skills/wind-db ~/.claude/skills/wind-db
 ```
 
 这样 `git pull` 就能拉更新，不用复制文件。
 
-### 2. 填凭据
+### 2. 一键向导（推荐）
 
 ```bash
-cd wind-db
-cp .env.example .env
-# 编辑 .env 填入数据库连接信息和字典站凭据
+bash ~/.claude/skills/wind-db/scripts/install.sh
 ```
 
-`.env.example` 里有注释说明每个字段。关键项：
+向导会依次：
 
-- `WIND_DB_DIALECT` / `WIND_DB_HOST` / `WIND_DB_USER` / `WIND_DB_PASSWORD` / `WIND_DB_NAME`
-- `WIND_DICT_URL` — 在线数据字典站 URL（见下节）
-- `WIND_DICT_USER` / `WIND_DICT_PASS` — 字典站的 basic auth
-- `WIND_DICT_LOCAL` — （可选）本地字典 MD 目录路径
-- `WIND_LIST_DBS` — （可选）逗号分隔的中文库名，限制 `dict.sh -l` 的输出范围
+1. 从 `.env.example` 复制 `.env`（已存在会先问是否覆盖）
+2. 交互式收集数据库连接信息（dialect / host / port / user / password / db）和字典站信息
+   - 密码输入隐藏，回车保持当前值
+   - 字段都带默认值，直接回车用默认
+3. 用安全引号写回 `.env`（权限 600）
+4. 询问是否注册 `dbhub-wind` MCP（内部调用 `setup-mcp.sh`）
 
-### 3. 注册 dbhub MCP
+**重启 Claude Code** 让 MCP 生效。
 
-```bash
-bash scripts/setup-mcp.sh
-```
+> 如果想手动拆开做（老方式），仍然支持：`cp .env.example .env` → 编辑 → `bash scripts/setup-mcp.sh`。
 
-脚本会根据 `.env` 里的连接信息组装 DSN，URL 编码用户密码，调用 `claude mcp add dbhub-wind --scope user -- npx -y @bytebase/dbhub ...` 注册成独立 MCP 实例。
-
-**重启 Claude Code** 让新 MCP 生效。
-
-### 4. 验证
+### 3. 验证
 
 在新会话里问 Claude："用 wind-db skill 查一下 AShareIncome 的主键字段"，Claude 应该自动加载 skill，调用 `dict.sh -t AShareIncome`，然后用 `execute_sql_dbhub_wind` 做 `WHERE 1=0` probe。
 
