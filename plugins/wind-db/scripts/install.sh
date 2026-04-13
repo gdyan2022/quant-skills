@@ -70,7 +70,8 @@ set +a
 if [ "$SKIP_EDIT" = "0" ]; then
   echo ""
   c_bold "[1/3] 数据库连接"; echo ""
-  c_dim  "  dialect 常用值：mysql+pymysql / postgresql+psycopg2 / mssql+pyodbc / oracle+cx_oracle"; echo ""
+  c_dim  "  dbhub 支持：mssql+pyodbc / mysql+pymysql / mariadb+pymysql / postgresql+psycopg2 / sqlite"; echo ""
+  c_dim  "  ⚠️ 不支持 Oracle（填了 dbhub MCP 会装不上）"; echo ""
 
   ask() {
     # ask <var_name> <prompt> [current_value]

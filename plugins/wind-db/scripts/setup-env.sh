@@ -38,6 +38,17 @@ fi
 WIND_DB_PORT="${WIND_DB_PORT:-1433}"
 WIND_DICT_LOCAL="${WIND_DICT_LOCAL:-}"
 WIND_LIST_DBS="${WIND_LIST_DBS:-基础代码表,中国A股数据库,中国香港股票数据库,中国共同基金数据库,指数数据库}"
+WIND_DB_SSLMODE="${WIND_DB_SSLMODE:-}"
+WIND_DB_INSTANCE="${WIND_DB_INSTANCE:-}"
+
+# 防呆：Oracle 方言用户会踩坑，直接提示
+case "$WIND_DB_DIALECT" in
+  oracle*)
+    echo "✗ dbhub 不支持 Oracle（源码：https://github.com/bytebase/dbhub/tree/main/src/connectors）" >&2
+    echo "  如果你确实要用 Oracle，请不要装 dbhub MCP；只用 dict.sh 部分功能。" >&2
+    exit 1
+    ;;
+esac
 
 # shell 安全单引号包裹（值里的 ' 转义成 '\''）
 quote() {
@@ -66,10 +77,14 @@ WIND_DICT_LOCAL=$(quote "$WIND_DICT_LOCAL")
 
 # ── 列表模式过滤（dict.sh -l 的库白名单）────────────────
 WIND_LIST_DBS=$(quote "$WIND_LIST_DBS")
+
+# ── SQL Server 专用（可选）──────────────────────────────
+WIND_DB_SSLMODE=$(quote "$WIND_DB_SSLMODE")
+WIND_DB_INSTANCE=$(quote "$WIND_DB_INSTANCE")
 EOF
 
 chmod 600 "$ENV_FILE"
-echo "✓ .env 已写入：$ENV_FILE（权限 600）"
+echo "✓ .env 已写入：${ENV_FILE}（权限 600）"
 
 # 可选：注册 MCP
 if [ -n "${WIND_DB_REGISTER_MCP:-}" ]; then

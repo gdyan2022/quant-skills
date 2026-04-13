@@ -34,12 +34,23 @@ fi
 按以下顺序**一次问一个**（或一次问一组相关字段，由用户判断），用中文，不要一次性给用户一个表单。每次问完等用户回答再问下一个。遇到可以给合理默认值的，**明确告诉用户默认值**，让他直接回复"默认"即可。
 
 ### 数据库连接
-1. **dialect**：常用 `mssql+pyodbc` / `mysql+pymysql` / `postgresql+psycopg2` / `oracle+cx_oracle`。告诉用户如果是 Wind 官方数据库通常是 MSSQL，建议 `mssql+pyodbc`。
+1. **dialect**：**dbhub 只支持这些**（源码见 https://github.com/bytebase/dbhub/tree/main/src/connectors）：
+   - `mssql+pyodbc`（SQL Server）← Wind 官方数据库最常见，**强烈建议选这个**
+   - `mysql+pymysql`
+   - `mariadb+pymysql`
+   - `postgresql+psycopg2`
+   - `sqlite`
+
+   **⚠️ dbhub 不支持 Oracle**。如果用户想用 Oracle，告诉他 dbhub MCP 装不了，只能用 `dict.sh` 部分功能（查字典），不能走 `execute_sql` probe 和 schema 查询。
 2. **host**：数据库服务器地址（IP 或域名）
-3. **port**：默认按 dialect 给建议（mssql=1433, mysql=3306, postgres=5432, oracle=1521）
+3. **port**：默认按 dialect 给建议（mssql=1433, mysql/mariadb=3306, postgres=5432, sqlite 不用填）
 4. **user**：数据库用户名
 5. **password**：数据库密码。**⚠️ 提醒用户**：这条消息会出现在 Claude 对话历史里，如果他担心留痕可以先输一个占位符，等 `.env` 写好后手动 `vim` 改。不要替用户决定要不要脱敏。
 6. **database**：数据库名（默认 `wind`）
+
+### SQL Server 专用（只在 dialect = mssql 时问）
+6b. **sslmode**（可选）：默认 `disable`（适合内网 / 自签证书 / Wind 自建环境）。如果是云上 SQL Server 且强制 TLS，填 `require`。不确定就用默认。
+6c. **instanceName**（可选）：命名实例名（如 `SQLEXPRESS`）。普通 SQL Server 不用填，留空即可。
 
 ### 数据字典站
 7. **WIND_DICT_URL**：默认 `https://winddict.081188.xyz`（用户如果有自己部署的字典站，填他自己的）
@@ -68,6 +79,8 @@ WIND_DICT_USER='<用户填的>' \
 WIND_DICT_PASS='<用户填的>' \
 WIND_DICT_LOCAL='<用户填的或空>' \
 WIND_LIST_DBS='<用户填的或默认>' \
+WIND_DB_SSLMODE='<只在 mssql 且用户填了时传>' \
+WIND_DB_INSTANCE='<只在 mssql 且用户填了时传>' \
 bash "$PLUGIN_ROOT/scripts/setup-env.sh"
 ```
 
