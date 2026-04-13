@@ -50,38 +50,34 @@
 
 ## 安装
 
-### 1. 克隆 quant-skills 仓库 + 创建符号链接
+### 方式一（推荐）：Claude Code Plugin Marketplace
 
-```bash
-# 克隆整个 quant-skills 集合到任意路径（例子用 ~/workspace）
-git clone https://github.com/YOUR_USERNAME/quant-skills.git ~/workspace/quant-skills
-
-# 把 wind-db 子目录符号链接进 Claude Code 的 skill 目录
-ln -s ~/workspace/quant-skills/wind-db ~/.claude/skills/wind-db
+```
+# 在 Claude Code 会话里：
+/plugin marketplace add gdyan2022/quant-skills
+/plugin install wind-db@quant-skills
 ```
 
-这样 `git pull` 就能拉更新，不用复制文件。
-
-### 2. 一键向导（推荐）
+然后跑一次配置向导（会话里）：
 
 ```bash
-bash ~/.claude/skills/wind-db/scripts/install.sh
+bash "$CLAUDE_PLUGIN_ROOT/scripts/install.sh"
 ```
 
-向导会依次：
+向导会：从 `.env.example` 复制 `.env`（放在 plugin 持久化目录，升级不丢）→ 交互式收集数据库/字典凭据（密码隐藏，回车保默认）→ 可选注册 `dbhub-wind` MCP。**重启 Claude Code** 让 MCP 生效。
 
-1. 从 `.env.example` 复制 `.env`（已存在会先问是否覆盖）
-2. 交互式收集数据库连接信息（dialect / host / port / user / password / db）和字典站信息
-   - 密码输入隐藏，回车保持当前值
-   - 字段都带默认值，直接回车用默认
-3. 用安全引号写回 `.env`（权限 600）
-4. 询问是否注册 `dbhub-wind` MCP（内部调用 `setup-mcp.sh`）
+### 方式二：手动 clone + 符号链接（开发者模式）
 
-**重启 Claude Code** 让 MCP 生效。
+```bash
+git clone https://github.com/gdyan2022/quant-skills.git ~/workspace/quant-skills
+ln -s ~/workspace/quant-skills/plugins/wind-db/skills/wind-db ~/.claude/skills/wind-db
+cd ~/workspace/quant-skills/plugins/wind-db
+bash scripts/install.sh
+```
 
-> 如果想手动拆开做（老方式），仍然支持：`cp .env.example .env` → 编辑 → `bash scripts/setup-mcp.sh`。
+这种方式 `.env` 落在 `plugins/wind-db/.env`，`git pull` 能拿更新，适合想对 skill 自己改代码的场景。
 
-### 3. 验证
+### 验证
 
 在新会话里问 Claude："用 wind-db skill 查一下 AShareIncome 的主键字段"，Claude 应该自动加载 skill，调用 `dict.sh -t AShareIncome`，然后用 `execute_sql_dbhub_wind` 做 `WHERE 1=0` probe。
 

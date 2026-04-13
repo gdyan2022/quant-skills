@@ -2,8 +2,12 @@
 # 一次性注册 dbhub-wind MCP 到 Claude Code
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
+# 优先用 Claude Code plugin 注入的 $CLAUDE_PLUGIN_ROOT，fallback 到脚本相对位置
+# （兼容 plugin 模式 + 手动 clone 模式）
+SCRIPT_DIR="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# .env 优先放在 plugin 持久化目录（升级不会被删），fallback 到 plugin 根
+ENV_FILE="${CLAUDE_PLUGIN_DATA:+$CLAUDE_PLUGIN_DATA/.env}"
+ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "✗ 未找到 $ENV_FILE，请先 cp .env.example .env 并填写"

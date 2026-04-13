@@ -8,11 +8,19 @@
 #   dict.sh -h                 帮助
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
+# 优先用 Claude Code plugin 注入的 $CLAUDE_PLUGIN_ROOT，fallback 到脚本相对位置
+SCRIPT_DIR="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# .env 优先取 plugin 持久化目录（升级不会丢），fallback plugin 根
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "$CLAUDE_PLUGIN_DATA/.env" ]; then
+  ENV_FILE="$CLAUDE_PLUGIN_DATA/.env"
+else
+  ENV_FILE="$SCRIPT_DIR/.env"
+fi
 
 if [ ! -f "$ENV_FILE" ]; then
-  echo "✗ 未找到 $ENV_FILE，请先 cp .env.example .env 并填写" >&2
+  echo "✗ 未找到 $ENV_FILE" >&2
+  echo "  首次使用请运行：bash \"\${CLAUDE_PLUGIN_ROOT:-$SCRIPT_DIR}/scripts/install.sh\"" >&2
   exit 1
 fi
 

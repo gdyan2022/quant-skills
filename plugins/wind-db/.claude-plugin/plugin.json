@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "wind-db",
+  "version": "0.2.0",
+  "description": "访问 Wind（万得）金融数据库。强制'先查数据字典、再 probe、再写 SQL'工作流，防止 dbhub MCP 拉大表撑爆上下文。自带 dict.sh 字典查询脚本 + 一键安装向导 + dbhub MCP 集成。",
+  "author": {
+    "name": "gdyan2022",
+    "url": "https://github.com/gdyan2022"
+  },
+  "homepage": "https://github.com/gdyan2022/quant-skills/tree/main/plugins/wind-db",
+  "repository": "https://github.com/gdyan2022/quant-skills",
+  "license": "MIT",
+  "keywords": ["wind", "万得", "finance", "quant", "database", "mcp", "dbhub"]
+}

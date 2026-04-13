@@ -9,11 +9,21 @@
 # 幂等：重跑会检测已填字段，询问是否覆盖，不会无脑重写。
 #
 # 用法：
-#   bash ~/.claude/skills/wind-db/scripts/install.sh
+#   Plugin 模式：  bash "$CLAUDE_PLUGIN_ROOT/scripts/install.sh"
+#   手动 clone：   bash ~/workspace/quant-skills/plugins/wind-db/scripts/install.sh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
+# 优先用 Claude Code plugin 注入的 $CLAUDE_PLUGIN_ROOT，fallback 到脚本相对位置
+SCRIPT_DIR="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# .env 存放位置：优先 $CLAUDE_PLUGIN_DATA（plugin 升级时不会丢），fallback plugin 根
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
+  mkdir -p "$CLAUDE_PLUGIN_DATA"
+  ENV_FILE="$CLAUDE_PLUGIN_DATA/.env"
+else
+  ENV_FILE="$SCRIPT_DIR/.env"
+fi
+
 EXAMPLE_FILE="$SCRIPT_DIR/.env.example"
 MCP_SCRIPT="$SCRIPT_DIR/scripts/setup-mcp.sh"
 
