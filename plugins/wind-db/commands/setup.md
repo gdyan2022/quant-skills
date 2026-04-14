@@ -10,32 +10,54 @@ allowed-tools: Bash, Read, Write
 
 ## 第 1 步：推导 plugin 根路径并检查现状
 
-**⚠️ 不要硬编码路径**（如 `~/workspace/quant-skills/...`）——那是开发者机器，不是用户机器。
+**⚠️ 不要硬编码路径**（如 `~/workspace/quant-skills/...`）——那是开发者机器。
 
 按以下优先级推导 `PLUGIN_ROOT`：
 
 ```bash
-# 1. Plugin 正式安装模式：Claude Code 注入 $CLAUDE_PLUGIN_ROOT
-# 2. Symlink 开发模式：~/.claude/skills/wind-db 是符号链接，readlink 得到真实位置，
-#    从那个位置上退两级（skills/wind-db/.. → plugin 根）
-# 3. 都没有就报错退出，不要猜路径
+PLUGIN_ROOT=""
 
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+# 1. Plugin 正式安装模式：Claude Code 有时注入 $CLAUDE_PLUGIN_ROOT
+#    （但并不是所有版本/场景都注入，所以不能只靠这个）
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT" ]; then
   PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
-elif [ -L "$HOME/.claude/skills/wind-db" ]; then
+fi
+
+# 2. Plugin install 模式：~/.claude/plugins/cache/<marketplace>/wind-db/<version>/
+#    扫所有 marketplace，找到 wind-db plugin 目录即可
+if [ -z "$PLUGIN_ROOT" ]; then
+  for cand in "$HOME"/.claude/plugins/cache/*/wind-db/*; do
+    if [ -d "$cand" ] && [ -d "$cand/scripts" ]; then
+      PLUGIN_ROOT="$cand"
+      break
+    fi
+  done
+fi
+
+# 3. Symlink 开发模式：~/.claude/skills/wind-db 是符号链接
+if [ -z "$PLUGIN_ROOT" ] && [ -L "$HOME/.claude/skills/wind-db" ]; then
   SKILL_TARGET=$(readlink "$HOME/.claude/skills/wind-db")
-  # 如果是相对路径，解析成绝对路径
   case "$SKILL_TARGET" in
     /*) ;;
     *) SKILL_TARGET="$HOME/.claude/skills/$SKILL_TARGET" ;;
   esac
-  # skills/wind-db 在 plugin 根下的 skills/wind-db/，上退两级
-  PLUGIN_ROOT=$(cd "$SKILL_TARGET/../.." && pwd)
-else
-  echo "✗ 找不到 wind-db plugin。检查过的位置：" >&2
-  echo "  - \$CLAUDE_PLUGIN_ROOT 未设置" >&2
-  echo "  - ~/.claude/skills/wind-db 不是 symlink 也不存在" >&2
-  echo "  请先通过 /plugin install 安装，或手动 ln -s 你本地的 plugin 路径" >&2
+  # skills/wind-db/ 往上两级是 plugin 根
+  candidate=$(cd "$SKILL_TARGET/../.." 2>/dev/null && pwd)
+  if [ -n "$candidate" ] && [ -d "$candidate/scripts" ]; then
+    PLUGIN_ROOT="$candidate"
+  fi
+fi
+
+if [ -z "$PLUGIN_ROOT" ]; then
+  echo "✗ 找不到 wind-db plugin。查找过的位置：" >&2
+  echo "  - \$CLAUDE_PLUGIN_ROOT: ${CLAUDE_PLUGIN_ROOT:-未设置}" >&2
+  echo "  - ~/.claude/plugins/cache/*/wind-db/*/: 未找到包含 scripts/ 的目录" >&2
+  echo "  - ~/.claude/skills/wind-db (symlink): 不存在" >&2
+  echo "" >&2
+  echo "  可能的解决办法：" >&2
+  echo "  - 通过 /plugin install wind-db@quant-skills 装 plugin" >&2
+  echo "  - 或手动 symlink：git clone 仓库后" >&2
+  echo "    ln -s <repo>/plugins/wind-db/skills/wind-db ~/.claude/skills/wind-db" >&2
   exit 1
 fi
 
