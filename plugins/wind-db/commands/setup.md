@@ -8,24 +8,49 @@ allowed-tools: Bash, Read, Write
 
 你现在要**作为配置向导**帮用户完成 wind-db plugin 的首次安装。不要自己 bash 跑交互式脚本（read -s 在 Claude 会话里没有 tty，会卡住），而是通过对话依次收集字段，最后调用非交互的 `setup-env.sh` 落地。
 
-## 第 1 步：检查现状
+## 第 1 步：推导 plugin 根路径并检查现状
 
-先看一下 plugin 根和 .env 状态：
+**⚠️ 不要硬编码路径**（如 `~/workspace/quant-skills/...`）——那是开发者机器，不是用户机器。
+
+按以下优先级推导 `PLUGIN_ROOT`：
 
 ```bash
-echo "CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-未设置（可能是 symlink 模式）}"
-echo "CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA:-未设置}"
+# 1. Plugin 正式安装模式：Claude Code 注入 $CLAUDE_PLUGIN_ROOT
+# 2. Symlink 开发模式：~/.claude/skills/wind-db 是符号链接，readlink 得到真实位置，
+#    从那个位置上退两级（skills/wind-db/.. → plugin 根）
+# 3. 都没有就报错退出，不要猜路径
 
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/workspace/quant-skills/plugins/wind-db}"
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
+elif [ -L "$HOME/.claude/skills/wind-db" ]; then
+  SKILL_TARGET=$(readlink "$HOME/.claude/skills/wind-db")
+  # 如果是相对路径，解析成绝对路径
+  case "$SKILL_TARGET" in
+    /*) ;;
+    *) SKILL_TARGET="$HOME/.claude/skills/$SKILL_TARGET" ;;
+  esac
+  # skills/wind-db 在 plugin 根下的 skills/wind-db/，上退两级
+  PLUGIN_ROOT=$(cd "$SKILL_TARGET/../.." && pwd)
+else
+  echo "✗ 找不到 wind-db plugin。检查过的位置：" >&2
+  echo "  - \$CLAUDE_PLUGIN_ROOT 未设置" >&2
+  echo "  - ~/.claude/skills/wind-db 不是 symlink 也不存在" >&2
+  echo "  请先通过 /plugin install 安装，或手动 ln -s 你本地的 plugin 路径" >&2
+  exit 1
+fi
+
 ENV_DIR="${CLAUDE_PLUGIN_DATA:-$PLUGIN_ROOT}"
+echo "PLUGIN_ROOT=$PLUGIN_ROOT"
+echo "ENV_DIR=$ENV_DIR"
 
 if [ -f "$ENV_DIR/.env" ]; then
   echo "✓ 已存在 .env：$ENV_DIR/.env"
-  echo "  （若用户传了 --reset 则覆盖，否则告知用户'已配置'并退出）"
 else
   echo "✗ 无 .env，进入首次向导"
 fi
 ```
+
+**关键**：后面所有涉及脚本路径的命令（调用 `parse-dsn.py` / `setup-env.sh` / `setup-mcp.sh` 等），**一律用 `$PLUGIN_ROOT`**，**不要**在 Bash 命令里写 `$HOME/workspace/quant-skills/...` 这种硬编码。
 
 **如果用户传入 `$ARGUMENTS` 包含 `--reset`**，覆盖现有 `.env`；否则检测到 `.env` 已存在时，告诉用户"已配置，如需重填请运行 `/wind-db:setup --reset`"并停止。
 
@@ -51,7 +76,7 @@ fi
 用户选 A 后，请他粘 DSN，然后**调一次 parse-dsn.py** 解析：
 
 ```bash
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/workspace/quant-skills/plugins/wind-db}"
+# $PLUGIN_ROOT 已在第 1 步推导好，这里直接用
 python3 "$PLUGIN_ROOT/scripts/parse-dsn.py" '<用户粘贴的 DSN>'
 ```
 
@@ -115,7 +140,7 @@ WIND_DB_NAME='winddb'
 收集完后，**用一个紧凑的表格复述所有字段**（密码用 `***` 脱敏显示），问用户"确认写入吗？[y/n]"。用户确认后执行：
 
 ```bash
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/workspace/quant-skills/plugins/wind-db}"
+# $PLUGIN_ROOT 沿用第 1 步推导的值
 
 WIND_DB_DIALECT='<用户填的>' \
 WIND_DB_HOST='<用户填的>' \
@@ -142,7 +167,7 @@ bash "$PLUGIN_ROOT/scripts/setup-env.sh"
 如果 yes，执行：
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:-$HOME/workspace/quant-skills/plugins/wind-db}/scripts/setup-mcp.sh"
+bash "$PLUGIN_ROOT/scripts/setup-mcp.sh"
 ```
 
 注册成功后提醒用户：**重启 Claude Code 让 MCP 生效**。
