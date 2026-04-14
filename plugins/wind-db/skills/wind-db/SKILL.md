@@ -71,7 +71,7 @@ bash "$CLAUDE_PLUGIN_ROOT/scripts/setup-mcp.sh"
 ## 3. 标准工作流（每次读 Wind 数据按这个顺序）
 
 1. **理解需求**：需要哪张表、哪些字段、时间范围、筛选条件。判断数据规模：**小样本 / 探索性**（几十行）还是**批量生产**（进 DataFrame 后续处理）
-2. **查字典**（`dict.sh -t <表名>`）：确认**表的中文含义和归属**（别靠英文名猜——`AShareIncomeHis` 是 PIT 不是"历史数据"；§6.3 TAG 变体）、业务主键、关键字段的值编码、FAQ 里的陷阱（见 §5.1）。字典**查不到**时 → 明确告知用户"字典里未找到 X"，不要根据英文词根编造表含义或字段列表
+2. **查字典**（`dict.sh -c <表名>`）：**默认用 `-c` 直接取内容**——一次就能拿到表的中文含义 / 归属 / 业务主键 / 所有字段定义 / 值编码 / FAQ 陷阱，不需要额外 WebFetch。别靠英文名猜（`AShareIncomeHis` 是 PIT 不是"历史数据"；§6.3 TAG 变体）。字典**查不到**时 → 明确告知用户"字典里未找到 X"，不要根据英文词根编造表含义或字段列表
 3. **probe 一下**（`execute_sql_dbhub_wind` 跑 `WHERE 1=0`）：确认本机真的订阅了这张表（见 §6.1）
 4. **小样本 / 探索**：直接用 `execute_sql_dbhub_wind` 跑 `LIMIT 20` / 聚合 / 抽样查询，结果回对话；**批量数据**：写 Python 脚本，结果落 `./data/*.parquet`
 5. **执行**：只把 `df.shape / dtypes / head()` 给用户（Python 路径）
@@ -176,12 +176,13 @@ dbhub 的 `execute_sql` 结果会直接回到上下文，Wind 单表动辄千万
 
 **入口**：`bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" ...`
 
-**默认一律用 `-t` 精确模式**，0 命中时才退到全文模式。
+**默认一律用 `-c` 获取内容**——URL 列表模式（`-t`）只给链接、你还要 WebFetch 再解析；`-c` 直接把命中页的所有内容（简介/字段/样例/FAQ）拼成 Markdown 返回。
 
 | 模式 | 命令 | 何时用 |
 |---|---|---|
-| **`-t` 精确** | `dict.sh -t AShareIncome`<br>`dict.sh -t 利润表` | **首选**。查表（英文名或中文名），干净、1 条结果 |
-| **全文（默认）** | `dict.sh STATEMENT_TYPE`<br>`dict.sh 合并报表` | `-t` 0 命中时。查字段含义、业务概念、FAQ 交叉讨论 |
+| **`-c` 内容** ⭐ | `dict.sh -c AShareIncome`<br>`dict.sh -c 利润表` | **首选**。直接拿到字段定义表 + FAQ，省掉 WebFetch。命中多条时展示最佳匹配，其他候选以链接列出 |
+| **`-t` URL 列表** | `dict.sh -t AShareIncome` | 只想看候选列表（不需要内容）时用，或 `-c` 展示了错误的版本想切其他候选 |
+| **全文搜索（默认）** | `dict.sh STATEMENT_TYPE`<br>`dict.sh 合并报表` | `-t` 0 命中时。查字段含义、业务概念、FAQ 交叉讨论 |
 | **`-l` 列表** | `dict.sh -l \| grep <词>`<br>`dict.sh -l \| awk ...` | 批量筛选字典（**不是**查本机订阅）。见下条 |
 
 **`-l` 陷阱**：输出的是 Wind **产品目录**（官方提供什么），**不是本机数据库快照**。用户问"我的数据库有什么表"时**永远不要**用 `-l` 回答 —— 要用 `search_objects_dbhub_wind`。

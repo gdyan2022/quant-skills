@@ -4,6 +4,8 @@
 # 用法:
 #   dict.sh <关键字>           默认：按 title > location > body 加权全文搜索
 #   dict.sh -t <关键字>        精确：只搜标题（文件名 / H1 / section 标题）
+#   dict.sh -c <关键字>        ⭐ 精确 + 直接输出命中页的完整内容（字段/FAQ/样例）
+#                              命中多条时，展示第 1 条并提示其他候选
 #   dict.sh -l                 列出所有表名↔中文名映射（供 AI 批量查找）
 #   dict.sh -h                 帮助
 set -euo pipefail
@@ -31,12 +33,18 @@ set +a
 
 TITLE_ONLY=0
 LIST_MODE=0
+CONTENT_MODE=0
 QUERY=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -t|--title)
       TITLE_ONLY=1
+      shift
+      ;;
+    -c|--content)
+      TITLE_ONLY=1
+      CONTENT_MODE=1
       shift
       ;;
     -l|--list)
@@ -48,12 +56,15 @@ while [ $# -gt 0 ]; do
 用法:
   $(basename "$0") <关键字>           全文搜索（title/location 加权）
   $(basename "$0") -t <关键字>        只搜标题（精确模式，避开推荐产品等噪声）
+  $(basename "$0") -c <关键字>        精确搜索 + 输出命中页的完整内容
+                                      （拼接简介/字段/样例/FAQ 所有 section）
   $(basename "$0") -l                 列出所有表名 → 中文名 → 路径 映射
                                       （供 AI 后续 grep，推荐重定向到文件）
 
 示例:
   $(basename "$0") AShareIncome          按表名搜
-  $(basename "$0") -t AShareIncome       只看表主页面
+  $(basename "$0") -t AShareIncome       只看表主页面 URL 列表
+  $(basename "$0") -c AShareIncome       ⭐ 直接读出 AShareIncome 的全部字段/FAQ
   $(basename "$0") STATEMENT_TYPE        按字段名搜
   $(basename "$0") -l > /tmp/wind_tables.tsv    导出全量对照表
   $(basename "$0") -l | grep 利润表      直接 grep
@@ -224,9 +235,22 @@ if [ -n "${WIND_DICT_LOCAL:-}" ] && [ -d "$WIND_DICT_LOCAL" ]; then
 
   if [ -n "$matches" ]; then
     count=$(echo "$matches" | wc -l | tr -d ' ')
-    echo "$matches"
-    echo ""
-    echo "(本地命中 $count 个文件。用 Read 工具读取具体内容。)"
+    if [ "$CONTENT_MODE" = "1" ]; then
+      first=$(echo "$matches" | head -n 1)
+      echo "==> 展示内容: $first"
+      echo ""
+      cat "$first"
+      if [ "$count" -gt 1 ]; then
+        echo ""
+        echo "---"
+        echo "(还有 $((count - 1)) 个候选文件未展示：)"
+        echo "$matches" | tail -n +2
+      fi
+    else
+      echo "$matches"
+      echo ""
+      echo "(本地命中 $count 个文件。用 Read 工具读取具体内容，或加 -c 直接输出内容。)"
+    fi
     exit 0
   fi
   echo "  本地未命中，尝试在线..." >&2
@@ -248,7 +272,7 @@ if ! curl -sSfu "$WIND_DICT_USER:$WIND_DICT_PASS" "$INDEX_URL" -o "$TMP"; then
   exit 1
 fi
 
-python3 - "$QUERY" "${WIND_DICT_URL%/}" "$MAX_RESULTS" "$TMP" "$TITLE_ONLY" "$EXCLUDE_SECTIONS" <<'PY'
+python3 - "$QUERY" "${WIND_DICT_URL%/}" "$MAX_RESULTS" "$TMP" "$TITLE_ONLY" "$EXCLUDE_SECTIONS" "$CONTENT_MODE" <<'PY'
 import json, sys, re
 from urllib.parse import unquote
 
@@ -258,6 +282,7 @@ max_results = int(sys.argv[3])
 index_path = sys.argv[4]
 title_only = sys.argv[5] == '1'
 exclude_patterns = [s.strip() for s in sys.argv[6].split(',') if s.strip()]
+content_mode = sys.argv[7] == '1'
 
 with open(index_path, 'r', encoding='utf-8') as f:
     data = json.load(f)
@@ -268,6 +293,25 @@ pattern = re.compile(re.escape(query), re.IGNORECASE)
 def clean_title(t):
     t = re.sub(r'\s*<code>[^<]*</code>\s*', '', t)
     return re.sub(r'<[^>]+>', '', t).strip()
+
+def html_to_text(s):
+    """轻量 HTML → 纯文本。search_index 里的 text 多是 <p>...</p> <ul>... 这类。"""
+    if not s:
+        return ""
+    # 常见块级元素换行
+    s = re.sub(r'</(p|li|h[1-6]|tr|div|br)>', '\n', s, flags=re.IGNORECASE)
+    s = re.sub(r'<li[^>]*>', '- ', s, flags=re.IGNORECASE)
+    s = re.sub(r'<br\s*/?>', '\n', s, flags=re.IGNORECASE)
+    # 删掉剩余所有标签
+    s = re.sub(r'<[^>]+>', '', s)
+    # 反转义 HTML 实体
+    s = (s.replace('&amp;', '&')
+           .replace('&lt;', '<').replace('&gt;', '>')
+           .replace('&quot;', '"').replace('&#39;', "'")
+           .replace('&nbsp;', ' '))
+    # 折叠多余空行
+    s = re.sub(r'\n{3,}', '\n\n', s)
+    return s.strip()
 
 hits = []
 for d in docs:
@@ -295,17 +339,24 @@ for d in docs:
 
     score = 0
 
+    # URL slug = 页面路径最后一段（英文表名），比如 'AShareIncome' 或 'AShareIncomeTaxADJProc'
+    page_segments = [s for s in page_path.rstrip('/').split('/') if s]
+    slug = unquote(page_segments[-1]) if page_segments else ''
+
     if title_only:
         # 精确模式：只看根页面条目（不展开 section），匹配 title 或 URL slug
-        # 相当于"找到这张表的主页"，不让 FAQ / 段落标题污染结果
         if has_anchor:
             continue
+        # 完全等于关键字的 slug 权重最高（大小写不敏感）
+        if slug.lower() == query.lower():
+            score += 100
+        elif pattern.search(slug):
+            score += 5
         if pattern.search(title):
             score += 10
-        if pattern.search(page_path):
-            score += 5
     else:
-        # 全文模式：title、location 任意层级、section 正文都算
+        if slug.lower() == query.lower():
+            score += 100
         if pattern.search(title):
             score += 10
         if pattern.search(page_path):
@@ -317,15 +368,62 @@ for d in docs:
         hits.append((score, title, location))
 
 hits.sort(reverse=True)
-for score, title, loc in hits[:max_results]:
-    url = f"{base_url}/{loc}" if loc else base_url
-    print(f"{url}  —  {title}")
 
 if not hits:
     suffix = " (仅标题)" if title_only else ""
     print(f"(在线字典中未找到 '{query}'{suffix})")
     sys.exit(2)
+
+# ─── content 模式：展示第 1 条的完整页面内容（所有 section 聚合）─────
+if content_mode:
+    _, first_title, first_loc = hits[0]
+    page_path = first_loc.split('#', 1)[0]
+
+    # 收集同一个 page_path 下的所有 section（包括根条目和带 #anchor 的）
+    sections = []
+    for d in docs:
+        loc = d.get('location', '') or ''
+        if loc.split('#', 1)[0] != page_path:
+            continue
+        sec_title = clean_title(d.get('title', '') or '')
+        sec_text = d.get('text', '') or ''
+        # 不展示"推荐产品"这类段落
+        if any(p in sec_title for p in exclude_patterns):
+            continue
+        sections.append((loc, sec_title, sec_text))
+
+    # 排序：根条目（无 #）排最前，再按 location 字面序（维持 mkdocs 编号 _1/_2/... 和 qN 顺序）
+    sections.sort(key=lambda x: (0 if '#' not in x[0] else 1, x[0]))
+
+    url = f"{base_url}/{page_path}"
+    print(f"# {first_title}")
+    print(f"URL: {url}")
+    print()
+
+    for loc, sec_title, sec_text in sections:
+        body = html_to_text(sec_text)
+        if '#' in loc:
+            print(f"## {sec_title}")
+        # 根条目的 text 可能是重复的"简介"，但一般很短，保留不会有问题
+        if body:
+            print(body)
+        print()
+
+    # 如果还有其他候选页面，提示
+    if len(hits) > 1:
+        print("---")
+        print(f"(还有 {len(hits) - 1} 个候选页面未展示，考虑换关键字缩小范围：)")
+        for _, t, loc in hits[1:max_results]:
+            print(f"  - {base_url}/{loc}  —  {t}")
+    sys.exit(0)
+
+# ─── 默认：URL 列表模式 ─────────────────────────────
+for score, title, loc in hits[:max_results]:
+    url = f"{base_url}/{loc}" if loc else base_url
+    print(f"{url}  —  {title}")
+
 print("")
 mode = "仅标题(含根 URL)" if title_only else "全文加权"
-print(f"(在线命中 {len(hits)} 项，显示前 {min(len(hits), max_results)} 条，模式: {mode}。用 WebFetch 读取具体页面。)")
+print(f"(在线命中 {len(hits)} 项，显示前 {min(len(hits), max_results)} 条，模式: {mode}。")
+print(f" 加 -c 参数可直接输出第一条的完整内容，省掉 WebFetch。)")
 PY

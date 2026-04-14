@@ -84,12 +84,12 @@ Claude 按用户问题语义自动路由：
 → search_objects_dbhub_wind(pattern='AShare%', type='table')
 
 用户："STATEMENT_TYPE 的枚举值是什么"
-→ dict.sh -t AShareIncome
-  读 MD 的"数据字典"段，回复 408001000=合并报表 / 408004000=合并报表(调整) / ...
-  并标注 (来源：字典)
+→ dict.sh -c AShareIncome
+  一次拿到完整字段定义表 + 所有 FAQ（包括 Q5 的 STATEMENT_TYPE 码值映射）
+  回复 408001000=合并报表 / 408004000=合并报表(调整) / ... 并标注 (来源：字典)
 
 用户："拉 2023 年所有 A 股的净利润"
-→ 1) dict.sh -t AShareIncome 查业务主键 + 字段陷阱
+→ 1) dict.sh -c AShareIncome        查表结构、业务主键、字段陷阱
   2) execute_sql_dbhub_wind: SELECT TOP 1 * FROM AShareIncome WHERE 1=0（probe）
   3) 写 Python 用 sqlalchemy 拉数据，存 ./data/*.parquet
   4) 回显 df.shape / df.dtypes / df.head()
@@ -98,7 +98,8 @@ Claude 按用户问题语义自动路由：
 手动在终端里跑字典查询：
 
 ```bash
-bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -t AShareIncome        # 精确查表
+bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -c AShareIncome        # ⭐ 直接输出整页内容
+bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -t AShareIncome        # 只看候选 URL 列表
 bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" STATEMENT_TYPE         # 全文查字段
 bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -l | grep 利润表        # 批量筛选
 bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -h                     # 帮助
