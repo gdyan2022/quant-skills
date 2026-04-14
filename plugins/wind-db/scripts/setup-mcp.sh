@@ -43,8 +43,43 @@ case "$DIALECT_SHORT" in
   mssql|sqlserver)      DB_SCHEME="sqlserver" ;;
   sqlite)               DB_SCHEME="sqlite" ;;
   oracle)
-    echo "✗ dbhub 不支持 Oracle（只支持 Postgres/MySQL/MariaDB/SQL Server/SQLite）" >&2
-    echo "  参考：https://github.com/bytebase/dbhub/tree/main/src/connectors" >&2
+    cat <<'ORACLE_EOF' >&2
+✗ dbhub 不支持 Oracle。
+
+Oracle 用户推荐改用 FreePeak/db-mcp-server（纯 Go 驱动，不需要 Oracle Instant Client）：
+
+  1. 装 Go 工具链（Wind 用户通常内网，需手动装：https://go.dev/dl/）
+  2. 编译并安装 MCP server：
+       go install github.com/FreePeak/db-mcp-server/cmd/server@latest
+       # 生成的二进制在 $(go env GOPATH)/bin/server
+  3. 写 config.json（路径随意，下文假设 ~/.wind-dbmcp.json）：
+       {
+         "connections": [{
+           "id": "wind",
+           "type": "oracle",
+           "host": "<WIND_DB_HOST>",
+           "port": <WIND_DB_PORT>,
+           "service_name": "<SERVICE_NAME>",
+           "user": "<WIND_DB_USER>",
+           "password": "<WIND_DB_PASSWORD>"
+         }]
+       }
+  4. 注册 MCP（注意：用名字 'dbmcp-wind'，不是 dbhub-wind）：
+       claude mcp add dbmcp-wind --scope user -- \
+         "$(go env GOPATH)/bin/server" -t stdio -c ~/.wind-dbmcp.json
+  5. 重启 Claude Code。Oracle 模式下工具名是：
+       - query_wind       （执行 SELECT）
+       - schema_wind      （列表/DDL/索引）
+       - execute_wind     （DML，需要谨慎）
+
+⚠️ wind-db skill 的默认指令是针对 dbhub 风格工具名写的。
+   Oracle 模式下 Claude 需要使用 query_wind / schema_wind 而非
+   search_objects_dbhub_wind / execute_sql_dbhub_wind。
+
+参考：
+  - FreePeak 源码：https://github.com/FreePeak/db-mcp-server
+  - Oracle config 字段：README "Oracle Configuration Options" 段
+ORACLE_EOF
     exit 1
     ;;
   *) DB_SCHEME="$DIALECT_SHORT" ;;

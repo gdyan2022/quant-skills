@@ -285,6 +285,20 @@ bash $CLAUDE_PLUGIN_ROOT/scripts/setup-mcp.sh
 
 注册后 dbhub MCP 工具会出现形如 `search_objects_dbhub_wind` / `execute_sql_dbhub_wind`。**永远用带 `_wind` 后缀的版本**，不要污染其他 dbhub 实例。
 
+### ⚠️ Oracle 用户：不走 dbhub，走 FreePeak
+
+dbhub **不支持 Oracle**。如果 Wind 数据库是 Oracle：
+
+- **不要**运行 `setup-mcp.sh`（会直接报错退出并给出指引）
+- **改用** [FreePeak/db-mcp-server](https://github.com/FreePeak/db-mcp-server)（纯 Go 驱动，**不需要 Oracle Instant Client**）
+- 集成方式请看 `setup-mcp.sh` 在 oracle dialect 下输出的完整步骤，或直接运行一次 `WIND_DB_DIALECT=oracle bash scripts/setup-mcp.sh` 看指引
+
+**Oracle 模式下的工具名不同**：
+- dbhub 风格：`search_objects_dbhub_wind` / `execute_sql_dbhub_wind`
+- FreePeak 风格：`schema_wind`（等价 search_objects）/ `query_wind`（等价 execute_sql 的 SELECT 部分）/ `execute_wind`（DML）
+
+用 FreePeak 时，本 SKILL.md 中所有 `search_objects_dbhub_wind` 请替换为 `schema_wind`，`execute_sql_dbhub_wind` 替换为 `query_wind`。其余流程（先查字典 → probe 一下 → 写文件）完全相同。
+
 ## 标准工作流
 
 每次用户要读 Wind 数据，按这个顺序：
