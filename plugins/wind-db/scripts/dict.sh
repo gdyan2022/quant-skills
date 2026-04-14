@@ -343,11 +343,17 @@ for d in docs:
     page_segments = [s for s in page_path.rstrip('/').split('/') if s]
     slug = unquote(page_segments[-1]) if page_segments else ''
 
-    if title_only:
-        # 精确模式：只看根页面条目（不展开 section），匹配 title 或 URL slug
+    if content_mode:
+        # -c 模式：严格要求 slug 完全等于 query（大小写不敏感），
+        # 不接受子串匹配——"我要看 AShareIncome"不应该命中 AShareIncomeTaxADJProc
         if has_anchor:
             continue
-        # 完全等于关键字的 slug 权重最高（大小写不敏感）
+        if slug.lower() == query.lower():
+            score = 100
+    elif title_only:
+        # -t 模式：匹配 title 或 URL slug 的子串（用于列出候选）
+        if has_anchor:
+            continue
         if slug.lower() == query.lower():
             score += 100
         elif pattern.search(slug):
@@ -355,6 +361,7 @@ for d in docs:
         if pattern.search(title):
             score += 10
     else:
+        # 全文模式：title、location、section 正文都算
         if slug.lower() == query.lower():
             score += 100
         if pattern.search(title):
@@ -370,12 +377,37 @@ for d in docs:
 hits.sort(reverse=True)
 
 if not hits:
-    suffix = " (仅标题)" if title_only else ""
-    print(f"(在线字典中未找到 '{query}'{suffix})")
+    if content_mode:
+        print(f"(字典中没有名为 '{query}' 的表。可能原因：")
+        print(f"  - 拼写错误（Wind 表名区分大小写但通常混合大小写，如 AShareIncome）")
+        print(f"  - 表在字典里用不同名字（试 'dict.sh -t {query}' 看子串匹配候选）")
+        print(f"  - 字段名而非表名（字段查询用全文模式：'dict.sh {query}'）")
+        print(f")")
+    else:
+        suffix = " (仅标题)" if title_only else ""
+        print(f"(在线字典中未找到 '{query}'{suffix})")
     sys.exit(2)
 
 # ─── content 模式：展示第 1 条的完整页面内容（所有 section 聚合）─────
 if content_mode:
+    # 严格匹配后如果有多条（同名表跨库），选内容最丰富的一条当首选
+    # 判断标准：这个 page_path 下所有 section 的 text 长度之和
+    def content_length(page_path):
+        total = 0
+        for d in docs:
+            loc = d.get('location', '') or ''
+            if loc.split('#', 1)[0] == page_path:
+                total += len(d.get('text', '') or '')
+        return total
+
+    hits_with_size = [
+        (content_length(loc.split('#', 1)[0]), score, title, loc)
+        for score, title, loc in hits
+    ]
+    # 先按内容丰富度降序，再按 score 降序
+    hits_with_size.sort(key=lambda x: (-x[0], -x[1]))
+    hits = [(s, t, l) for _, s, t, l in hits_with_size]
+
     _, first_title, first_loc = hits[0]
     page_path = first_loc.split('#', 1)[0]
 
@@ -409,10 +441,11 @@ if content_mode:
             print(body)
         print()
 
-    # 如果还有其他候选页面，提示
+    # 严格匹配后仍有多条，说明字典里同名表出现在多个库（比如"中国A股数据库"
+    # 和"专题与另类数据库/私募研究A股场景"都有 AShareIncome 入口）
     if len(hits) > 1:
         print("---")
-        print(f"(还有 {len(hits) - 1} 个候选页面未展示，考虑换关键字缩小范围：)")
+        print(f"(字典里'{query}'这个表名在 {len(hits)} 个库/模块下都存在，上面展示的是内容最丰富的一条。其他位置：)")
         for _, t, loc in hits[1:max_results]:
             print(f"  - {base_url}/{loc}  —  {t}")
     sys.exit(0)
