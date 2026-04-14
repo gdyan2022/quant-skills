@@ -88,6 +88,12 @@ Claude 按用户问题语义自动路由：
   一次拿到完整字段定义表 + 所有 FAQ（包括 Q5 的 STATEMENT_TYPE 码值映射）
   回复 408001000=合并报表 / 408004000=合并报表(调整) / ... 并标注 (来源：字典)
 
+用户："利润表里哪些字段是主键"
+→ 1) dict.sh -t 利润表               知道中文名但不知英文表名，先 -t 列候选
+  2) 从候选里选 AShareIncome
+  3) dict.sh -c AShareIncome         -c 精确匹配英文表名，拿完整内容
+  4) 从"数据字典"段挑出业务主键三列（来源：字典）
+
 用户："拉 2023 年所有 A 股的净利润"
 → 1) dict.sh -c AShareIncome        查表结构、业务主键、字段陷阱
   2) execute_sql_dbhub_wind: SELECT TOP 1 * FROM AShareIncome WHERE 1=0（probe）
@@ -98,10 +104,10 @@ Claude 按用户问题语义自动路由：
 手动在终端里跑字典查询：
 
 ```bash
-bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -c AShareIncome        # ⭐ 直接输出整页内容
-bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -t AShareIncome        # 只看候选 URL 列表
-bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" STATEMENT_TYPE         # 全文查字段
-bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -l | grep 利润表        # 批量筛选
+bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -c AShareIncome        # ⭐ 精确匹配英文表名，直接输出整页内容
+bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -t 利润表                # 子串匹配，列出候选 URL
+bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" STATEMENT_TYPE         # 全文查字段含义
+bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -l | grep 利润表        # 批量筛选全量对照
 bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -h                     # 帮助
 ```
 
