@@ -86,6 +86,28 @@ if [ "$SKIP_EDIT" = "0" ]; then
     printf -v "$var" '%s' "$input"
   }
 
+  # 强制必填版：不显示默认、不允许空、直到用户输入非空值才继续
+  ask_required() {
+    local var="$1" prompt="$2" input
+    while true; do
+      read -r -p "  $prompt: " input
+      [ -n "$input" ] && break
+      c_warn "  不能留空"; echo ""
+    done
+    printf -v "$var" '%s' "$input"
+  }
+
+  ask_secret_required() {
+    local var="$1" prompt="$2" input
+    while true; do
+      read -r -s -p "  $prompt: " input
+      echo ""
+      [ -n "$input" ] && break
+      c_warn "  不能留空"; echo ""
+    done
+    printf -v "$var" '%s' "$input"
+  }
+
   ask_secret() {
     # ask_secret <var_name> <prompt> [current_value]
     local var="$1" prompt="$2" cur="${3:-}" input
@@ -154,8 +176,18 @@ if [ "$SKIP_EDIT" = "0" ]; then
   echo ""
   c_bold "[2/3] 数据字典站（在线版）"; echo ""
   ask NEW_DICT_URL  "WIND_DICT_URL"  "${WIND_DICT_URL:-https://winddict.081188.xyz}"
-  ask NEW_DICT_USER "WIND_DICT_USER" "${WIND_DICT_USER:-admin}"
-  ask_secret NEW_DICT_PASS "WIND_DICT_PASS (basic auth)" "${WIND_DICT_PASS:-}"
+  # 字典站 basic auth：没有通用默认值，必填
+  # 如果 .env 里已有真实值（不是占位符），允许回车保持
+  if [ -n "${WIND_DICT_USER:-}" ] && [ "$WIND_DICT_USER" != "admin" ]; then
+    ask NEW_DICT_USER "WIND_DICT_USER" "$WIND_DICT_USER"
+  else
+    ask_required NEW_DICT_USER "WIND_DICT_USER (basic auth 用户名，必填)"
+  fi
+  if [ -n "${WIND_DICT_PASS:-}" ] && [ "$WIND_DICT_PASS" != "your_caddy_basic_auth_password" ]; then
+    ask_secret NEW_DICT_PASS "WIND_DICT_PASS (basic auth)" "$WIND_DICT_PASS"
+  else
+    ask_secret_required NEW_DICT_PASS "WIND_DICT_PASS (basic auth 密码，必填)"
+  fi
 
   echo ""
   c_bold "[3/3] 本地字典（可选）"; echo ""

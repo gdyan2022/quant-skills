@@ -128,8 +128,8 @@ WIND_DB_NAME='winddb'
 
 ### 数据字典站
 7. **WIND_DICT_URL**：默认 `https://winddict.081188.xyz`（用户如果有自己部署的字典站，填他自己的）
-8. **WIND_DICT_USER**：字典站 basic auth 用户名，默认 `admin`
-9. **WIND_DICT_PASS**：字典站 basic auth 密码
+8. **WIND_DICT_USER**：字典站 basic auth 用户名。**直接让用户输，不要给默认值** —— 默认的 `admin` 是占位符，登不进去
+9. **WIND_DICT_PASS**：字典站 basic auth 密码。**直接让用户输，不要建议默认** —— 没有通用默认密码
 
 ### 可选项（给默认值，用户回复"默认"即跳过）
 10. **WIND_DICT_LOCAL**：本地字典目录路径（可选，填了 dict.sh 会优先走本地 grep 更快）。默认留空。
