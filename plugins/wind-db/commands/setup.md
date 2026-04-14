@@ -29,11 +29,59 @@ fi
 
 **如果用户传入 `$ARGUMENTS` 包含 `--reset`**，覆盖现有 `.env`；否则检测到 `.env` 已存在时，告诉用户"已配置，如需重填请运行 `/wind-db:setup --reset`"并停止。
 
-## 第 2 步：收集字段（通过对话）
+## 第 2 步：收集数据库连接（**先问用户选哪种方式**）
 
-按以下顺序**一次问一个**（或一次问一组相关字段，由用户判断），用中文，不要一次性给用户一个表单。每次问完等用户回答再问下一个。遇到可以给合理默认值的，**明确告诉用户默认值**，让他直接回复"默认"即可。
+**不要一字段一字段问**——那样太啰嗦。先问用户：
 
-### 数据库连接
+> 我可以通过两种方式收集数据库连接信息：
+>
+> **A. 粘 DSN（推荐，一步到位）** — 把你手边已有的数据库连接串粘过来，我自动解析。支持的格式：
+>   - SQLAlchemy：`mssql+pyodbc://user:pass@host:1433/db`
+>   - 标准 URL：`sqlserver://user:pass@host:1433/db?sslmode=disable`
+>   - JDBC：`jdbc:sqlserver://host:1433;databaseName=db;user=x;password=y`
+>   - ADO.NET：`Server=host,1433;Database=db;User Id=x;Password=y`
+>   - 键值对：`host=x port=1433 user=scott password=tiger database=db dialect=mssql`
+>
+> **B. 逐项填（兜底）** — 如果你手边没有现成 DSN，我会一项一项问 dialect/host/port/user/password/database。
+>
+> 回复 A 或 B。
+
+### 方式 A：粘 DSN
+
+用户选 A 后，请他粘 DSN，然后**调一次 parse-dsn.py** 解析：
+
+```bash
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/workspace/quant-skills/plugins/wind-db}"
+python3 "$PLUGIN_ROOT/scripts/parse-dsn.py" '<用户粘贴的 DSN>'
+```
+
+**⚠️ 调用时参数要用单引号包起来**，避免 `$` / `!` / 空格等被 shell 误解析。如果用户粘的 DSN 自己含单引号，改用 stdin 模式：
+
+```bash
+echo '<DSN>' | python3 "$PLUGIN_ROOT/scripts/parse-dsn.py"
+```
+
+脚本输出形如：
+```
+WIND_DB_DIALECT='mssql+pyodbc'
+WIND_DB_HOST='1.2.3.4'
+WIND_DB_PORT='1433'
+WIND_DB_USER='scott'
+WIND_DB_PASSWORD='tiger'
+WIND_DB_NAME='winddb'
+```
+
+**把识别结果以表格形式展示给用户**（密码脱敏为 `***`），然后问：
+- "字段对吗？有没有要改的？" — 如果用户要改某字段，继续对话收集补丁
+- 如果识别出 dialect = `oracle+cx_oracle`，**立刻停下**，告诉用户 dbhub 不支持 Oracle，需要手动集成 FreePeak/db-mcp-server（指引在 `setup-mcp.sh` 的 Oracle 分支输出里）
+- 如果识别出的字段不全（比如 user/password 缺失），追问缺失的那几个
+
+**解析失败时**：脚本会在 stderr 打出支持的格式列表，告诉用户重新粘一个更清晰的 DSN，或者直接转方式 B。
+
+### 方式 B：逐项填（兜底）
+
+只在用户明确选 B 或方式 A 失败时使用。按以下顺序问，一次一个：
+
 1. **dialect**：**dbhub 只支持这些**（源码见 https://github.com/bytebase/dbhub/tree/main/src/connectors）：
    - `mssql+pyodbc`（SQL Server）← Wind 官方数据库最常见，**强烈建议选这个**
    - `mysql+pymysql`
@@ -48,9 +96,10 @@ fi
 5. **password**：数据库密码。**⚠️ 提醒用户**：这条消息会出现在 Claude 对话历史里，如果他担心留痕可以先输一个占位符，等 `.env` 写好后手动 `vim` 改。不要替用户决定要不要脱敏。
 6. **database**：数据库名（默认 `wind`）
 
-### SQL Server 专用（只在 dialect = mssql 时问）
-6b. **sslmode**（可选）：默认 `disable`（适合内网 / 自签证书 / Wind 自建环境）。如果是云上 SQL Server 且强制 TLS，填 `require`。不确定就用默认。
-6c. **instanceName**（可选）：命名实例名（如 `SQLEXPRESS`）。普通 SQL Server 不用填，留空即可。
+### 方式 A/B 都适用：SQL Server 可选项（只在 dialect = mssql 时问）
+- **sslmode**（可选）：默认 `disable`（适合内网 / 自签证书 / Wind 自建环境）。如果是云上 SQL Server 且强制 TLS，填 `require`。不确定就用默认。
+  - 方式 A：如果用户粘的 URL 里 query 参数带了 `?sslmode=xxx`，脚本已经识别成 `WIND_DB_SSLMODE`，不用再问
+- **instanceName**（可选）：命名实例名（如 `SQLEXPRESS`）。普通 SQL Server 不用填，留空即可。
 
 ### 数据字典站
 7. **WIND_DICT_URL**：默认 `https://winddict.081188.xyz`（用户如果有自己部署的字典站，填他自己的）

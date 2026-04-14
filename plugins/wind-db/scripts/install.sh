@@ -100,12 +100,56 @@ if [ "$SKIP_EDIT" = "0" ]; then
     printf -v "$var" '%s' "$input"
   }
 
-  ask NEW_DIALECT  "WIND_DB_DIALECT"  "${WIND_DB_DIALECT:-mssql+pyodbc}"
-  ask NEW_HOST     "WIND_DB_HOST"     "${WIND_DB_HOST:-}"
-  ask NEW_PORT     "WIND_DB_PORT"     "${WIND_DB_PORT:-1433}"
-  ask NEW_USER     "WIND_DB_USER"     "${WIND_DB_USER:-}"
-  ask_secret NEW_PASSWORD "WIND_DB_PASSWORD" "${WIND_DB_PASSWORD:-}"
-  ask NEW_DB_NAME  "WIND_DB_NAME"     "${WIND_DB_NAME:-wind}"
+  # 先问用户要粘 DSN 还是逐项填
+  echo "  A. 粘一个完整 DSN（SQLAlchemy / URL / JDBC / ADO.NET / 键值对都行）"
+  echo "  B. 逐项填（dialect/host/port/user/password/database 一个个输）"
+  read -r -p "  选择 [A/b]: " MODE
+  MODE="${MODE:-A}"
+
+  if [[ "$MODE" =~ ^[Aa]$ ]]; then
+    echo ""
+    c_dim "  粘你的 DSN（密码里有 '、\$、! 等特殊字符也没关系，整行粘就行）"; echo ""
+    read -r -p "  DSN: " DSN_RAW
+    if [ -z "$DSN_RAW" ]; then
+      c_err "✗ DSN 为空，改用逐项填"; echo ""
+      MODE="B"
+    else
+      # 用 parse-dsn.py 解析，输出的 shell 赋值语句 eval 到当前 shell
+      PARSE_OUTPUT=$(python3 "$SCRIPT_DIR/scripts/parse-dsn.py" "$DSN_RAW" 2>&1) || {
+        c_err "✗ $PARSE_OUTPUT"; echo ""
+        c_warn "  解析失败，改用逐项填"; echo ""
+        MODE="B"
+      }
+      if [[ "$MODE" =~ ^[Aa]$ ]]; then
+        eval "$PARSE_OUTPUT"
+        NEW_DIALECT="$WIND_DB_DIALECT"
+        NEW_HOST="$WIND_DB_HOST"
+        NEW_PORT="${WIND_DB_PORT:-}"
+        NEW_USER="${WIND_DB_USER:-}"
+        NEW_PASSWORD="${WIND_DB_PASSWORD:-}"
+        NEW_DB_NAME="${WIND_DB_NAME:-wind}"
+        echo ""
+        c_ok "✓ DSN 解析成功："; echo ""
+        echo "    dialect:  $NEW_DIALECT"
+        echo "    host:port $NEW_HOST:$NEW_PORT"
+        echo "    user:     $NEW_USER"
+        echo "    password: ***（已收到，长度 ${#NEW_PASSWORD}）"
+        echo "    database: $NEW_DB_NAME"
+        # 缺字段兜底（粘的 DSN 没带 user/password 的常见情况）
+        [ -z "$NEW_USER" ]     && ask NEW_USER     "补填 WIND_DB_USER" ""
+        [ -z "$NEW_PASSWORD" ] && ask_secret NEW_PASSWORD "补填 WIND_DB_PASSWORD" ""
+      fi
+    fi
+  fi
+
+  if [[ "$MODE" =~ ^[Bb]$ ]]; then
+    ask NEW_DIALECT  "WIND_DB_DIALECT"  "${WIND_DB_DIALECT:-mssql+pyodbc}"
+    ask NEW_HOST     "WIND_DB_HOST"     "${WIND_DB_HOST:-}"
+    ask NEW_PORT     "WIND_DB_PORT"     "${WIND_DB_PORT:-1433}"
+    ask NEW_USER     "WIND_DB_USER"     "${WIND_DB_USER:-}"
+    ask_secret NEW_PASSWORD "WIND_DB_PASSWORD" "${WIND_DB_PASSWORD:-}"
+    ask NEW_DB_NAME  "WIND_DB_NAME"     "${WIND_DB_NAME:-wind}"
+  fi
 
   echo ""
   c_bold "[2/3] 数据字典站（在线版）"; echo ""
