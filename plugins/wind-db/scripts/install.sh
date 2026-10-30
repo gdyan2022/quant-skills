@@ -4,7 +4,7 @@
 # 做三件事：
 #   1. 如果没有 .env，从 .env.example 复制
 #   2. 交互式让用户填关键字段（带默认值 / 密码隐藏）
-#   3. 可选：调用 setup-mcp.sh 注册 dbhub-wind MCP 到 Claude Code
+#   3. 可选：调用 setup-mcp.sh 注册数据库 MCP 到 Claude Code（非 Oracle → dbhub-wind；Oracle → dbmcp-wind）
 #
 # 幂等：重跑会检测已填字段，询问是否覆盖，不会无脑重写。
 #
@@ -16,13 +16,15 @@ set -euo pipefail
 # 优先用 Claude Code plugin 注入的 $CLAUDE_PLUGIN_ROOT，fallback 到脚本相对位置
 SCRIPT_DIR="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
-# .env 存放位置：优先 $CLAUDE_PLUGIN_DATA（plugin 升级时不会丢），fallback plugin 根
-if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
-  mkdir -p "$CLAUDE_PLUGIN_DATA"
-  ENV_FILE="$CLAUDE_PLUGIN_DATA/.env"
-else
-  ENV_FILE="$SCRIPT_DIR/.env"
-fi
+# .env 存放位置：优先 $CLAUDE_PLUGIN_DATA（plugin 升级时不会丢），fallback plugin 根。
+# 该变量是「当前正在执行的 plugin」的数据目录，在别的 plugin 的会话里会指向别处，所以只认目录名是 wind-db 的。
+DATA_DIR=""
+case "${CLAUDE_PLUGIN_DATA:-}" in
+  */wind-db|*/wind-db-*) DATA_DIR="$CLAUDE_PLUGIN_DATA" ;;
+esac
+DATA_DIR="${DATA_DIR:-$SCRIPT_DIR}"
+mkdir -p "$DATA_DIR"
+ENV_FILE="$DATA_DIR/.env"
 
 EXAMPLE_FILE="$SCRIPT_DIR/.env.example"
 MCP_SCRIPT="$SCRIPT_DIR/scripts/setup-mcp.sh"
@@ -70,8 +72,8 @@ set +a
 if [ "$SKIP_EDIT" = "0" ]; then
   echo ""
   c_bold "[1/3] 数据库连接"; echo ""
-  c_dim  "  dbhub 支持：mssql+pyodbc / mysql+pymysql / mariadb+pymysql / postgresql+psycopg2 / sqlite"; echo ""
-  c_dim  "  ⚠️ 不支持 Oracle（填了 dbhub MCP 会装不上）"; echo ""
+  c_dim  "  dialect：mssql+pyodbc（Wind SQL Server，最常见）/ oracle+oracledb（Wind Oracle）/ mysql+pymysql / mariadb+pymysql / postgresql+psycopg2 / sqlite"; echo ""
+  c_dim  "  Oracle 的 MCP 走 FreePeak db-mcp-server（纯 Go，不需要 Instant Client）；其余走 dbhub"; echo ""
 
   ask() {
     # ask <var_name> <prompt> [current_value]
@@ -149,7 +151,9 @@ if [ "$SKIP_EDIT" = "0" ]; then
         NEW_PORT="${WIND_DB_PORT:-}"
         NEW_USER="${WIND_DB_USER:-}"
         NEW_PASSWORD="${WIND_DB_PASSWORD:-}"
-        NEW_DB_NAME="${WIND_DB_NAME:-wind}"
+        NEW_DB_NAME="${WIND_DB_NAME:-}"
+        # Oracle 用 SID 连接时没有 service name，不要补默认 wind
+        [ -z "$NEW_DB_NAME" ] && [ -z "${WIND_DB_SID:-}" ] && NEW_DB_NAME="wind"
         echo ""
         c_ok "✓ DSN 解析成功："; echo ""
         echo "    dialect:  $NEW_DIALECT"
@@ -170,7 +174,19 @@ if [ "$SKIP_EDIT" = "0" ]; then
     ask NEW_PORT     "WIND_DB_PORT"     "${WIND_DB_PORT:-1433}"
     ask NEW_USER     "WIND_DB_USER"     "${WIND_DB_USER:-}"
     ask_secret NEW_PASSWORD "WIND_DB_PASSWORD" "${WIND_DB_PASSWORD:-}"
-    ask NEW_DB_NAME  "WIND_DB_NAME"     "${WIND_DB_NAME:-wind}"
+    ask NEW_DB_NAME  "WIND_DB_NAME（Oracle 填 service name）" "${WIND_DB_NAME:-wind}"
+  fi
+
+  # ── Oracle 专用字段 ──
+  NEW_SCHEMA="${WIND_DB_SCHEMA:-}"
+  NEW_SID="${WIND_DB_SID:-}"
+  NEW_CLIENT_LIB="${WIND_ORACLE_CLIENT_LIB_DIR:-}"
+  if [[ "$NEW_DIALECT" == oracle* ]]; then
+    echo ""
+    c_dim "  Oracle 版 Wind 通常把表建在 WIND 用户下、你用只读账号登录，SQL 里带 WIND. 前缀最稳"; echo ""
+    ask NEW_SCHEMA "WIND_DB_SCHEMA（表所在 schema）" "${NEW_SCHEMA:-WIND}"
+    c_dim "  服务器是 11g 时 Python 读数必须 thick 模式 → 填 Instant Client 目录；≥12.1 可留空（MCP 不需要）"; echo ""
+    ask NEW_CLIENT_LIB "WIND_ORACLE_CLIENT_LIB_DIR（可留空）" "$NEW_CLIENT_LIB"
   fi
 
   echo ""
@@ -225,6 +241,11 @@ WIND_DICT_LOCAL=$(quote "$NEW_DICT_LOCAL")
 
 # ── 列表模式过滤（dict.sh -l 的库白名单）────────────────
 WIND_LIST_DBS=$(quote "$NEW_LIST_DBS")
+
+# ── Oracle 专用（可选，见 .env.example）─────────────────
+WIND_DB_SCHEMA=$(quote "$NEW_SCHEMA")
+WIND_DB_SID=$(quote "$NEW_SID")
+WIND_ORACLE_CLIENT_LIB_DIR=$(quote "$NEW_CLIENT_LIB")
 EOF
 
   chmod 600 "$ENV_FILE"
@@ -232,14 +253,14 @@ EOF
   c_ok "✓ .env 已写入（权限 600）"; echo ""
 fi
 
-# ── 3. 注册 dbhub-wind MCP ──────────────────────────────
+# ── 3. 注册数据库 MCP ───────────────────────────────────
 echo ""
-c_bold "dbhub-wind MCP 注册"; echo ""
-c_dim  "  这一步会用 .env 里的数据库连接信息注册一个名为 'dbhub-wind' 的 MCP 到 Claude Code，"; echo ""
-c_dim  "  之后在会话里可以用 search_objects / execute_sql 探查 schema。"; echo ""
+c_bold "数据库 MCP 注册"; echo ""
+c_dim  "  用 .env 里的连接信息注册 MCP 到 Claude Code：非 Oracle → dbhub-wind（search_objects / execute_sql），"; echo ""
+c_dim  "  Oracle → dbmcp-wind（FreePeak db-mcp-server：query_wind / schema_wind，自动下载预编译二进制）。"; echo ""
 
-if command -v claude >/dev/null 2>&1 && claude mcp list 2>/dev/null | grep -q 'dbhub-wind'; then
-  c_warn "⚠ 检测到已存在的 dbhub-wind MCP 注册。"; echo ""
+if command -v claude >/dev/null 2>&1 && claude mcp list 2>/dev/null | grep -q '^dbhub-wind:\|^dbmcp-wind:'; then
+  c_warn "⚠ 检测到已存在的 dbhub-wind / dbmcp-wind MCP 注册。"; echo ""
   read -r -p "  是否重新注册（会用 .env 最新值覆盖）？[y/N] " reinstall
   if [[ "$reinstall" =~ ^[yY]$ ]]; then
     bash "$MCP_SCRIPT"

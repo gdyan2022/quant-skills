@@ -5,3 +5,11 @@ __pycache__/
 
 # 通配所有子目录的 .env
 **/.env
+
+# wind-db 本地产物（symlink 开发模式下落在 plugin 根；plugin 安装模式下在 $CLAUDE_PLUGIN_DATA）
+plugins/wind-db/bin/
+plugins/wind-db/dbmcp-wind.json
+plugins/wind-db/logs/
+# .env 的备份 / 变体（.env.mssql 等），但保留 .env.example
+**/.env.*
+!**/.env.example

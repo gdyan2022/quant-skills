@@ -17,9 +17,9 @@
 
 ```
 ┌─────────────────────────┐      ┌──────────────────────────┐
-│  dbhub-wind MCP         │      │  dict.sh                 │
-│  (search_objects,       │      │  (本地 MD grep /          │
-│   execute_sql)          │      │   在线 mkdocs 字典站)     │
+│  dbhub-wind / dbmcp-wind│      │  dict.sh                 │
+│  MCP (search_objects /  │      │  (本地 MD grep /          │
+│   execute_sql / query)  │      │   在线 mkdocs 字典站)     │
 ├─────────────────────────┤      ├──────────────────────────┤
 │ 我的真实数据库           │      │ Wind 产品目录 + 说明书     │
 │                         │      │                          │
@@ -53,7 +53,7 @@
 /wind-db:setup
 ```
 
-Claude 会通过对话收集数据库/字典凭据（支持粘 DSN 一步到位，或逐项填），写入 `.env`（存放在 plugin 持久化目录，升级不丢），并可选注册 `dbhub-wind` MCP。最后**重启 Claude Code** 让 MCP 生效。
+Claude 会通过对话收集数据库/字典凭据（支持粘 DSN 一步到位，或逐项填），写入 `.env`（存放在 plugin 持久化目录，升级不丢），并可选注册数据库 MCP（非 Oracle → `dbhub-wind`；Oracle → `dbmcp-wind`）。最后**重启 Claude Code** 让 MCP 生效。
 
 想重新配置：`/wind-db:setup --reset`。
 
@@ -72,7 +72,7 @@ bash scripts/install.sh
 
 新会话里问 Claude："查一下 AShareIncome 的主键字段"，Claude 会自动：
 1. 跑 `dict.sh -t AShareIncome` 读字典
-2. 用 `execute_sql_dbhub_wind` 做 `WHERE 1=0` probe 确认可读
+2. 用 `execute_sql_dbhub_wind`（Oracle：`query_wind`）做 `WHERE 1=0` probe 确认可读
 3. 汇报业务主键 + 可读性结果
 
 ## 使用示例
@@ -121,23 +121,21 @@ bash "$CLAUDE_PLUGIN_ROOT/scripts/dict.sh" -h                     # 帮助
 | `commands/setup.md` | `/wind-db:setup` slash command，Claude 作为向导引导首次配置 |
 | `scripts/install.sh` | 终端 tty 交互向导（方式二或手动拆步时用） |
 | `scripts/setup-env.sh` | 非交互 `.env` 写入（供 `/wind-db:setup` 调用） |
-| `scripts/setup-mcp.sh` | 读 `.env` 注册 `dbhub-wind` MCP（按 dialect 选 scheme） |
+| `scripts/setup-mcp.sh` | 读 `.env` 按 dialect 注册 MCP：非 Oracle → dbhub `dbhub-wind`；Oracle → FreePeak db-mcp-server `dbmcp-wind`（下载预编译二进制 + SHA256 校验 + 生成 `dbmcp-wind.json`）。支持 `--dry-run` |
 | `scripts/parse-dsn.py` | 解析 SQLAlchemy / URL / JDBC / ADO.NET / 键值对 DSN 到字段 |
 | `scripts/dict.sh` | Wind 数据字典查询（三模式：`-t` / 全文 / `-l`） |
 | `.env.example` | 凭据模板 |
 
 ## 支持的数据库方言
 
-由 dbhub MCP 决定（Oracle 不支持）：
-
-| dialect | scheme | 备注 |
+| dialect | MCP | 备注 |
 |---|---|---|
-| `mssql+pyodbc` | `sqlserver://` | **Wind 官方数据库最常见**。默认带 `?sslmode=disable`（内网 / 自签证书）。支持 `WIND_DB_SSLMODE`、`WIND_DB_INSTANCE` |
-| `mysql+pymysql` | `mysql://` | |
-| `mariadb+pymysql` | `mariadb://` | |
-| `postgresql+psycopg2` | `postgres://` | |
-| `sqlite` | `sqlite://` | 单机测试 |
-| `oracle+cx_oracle` | — | **dbhub 不支持**。运行 `setup-mcp.sh` 会输出 [FreePeak/db-mcp-server](https://github.com/FreePeak/db-mcp-server) 的 5 步手动集成指引（纯 Go 驱动，**不需要 Oracle Instant Client**） |
+| `mssql+pyodbc` | dbhub `sqlserver://` | **Wind 官方 SQL Server 版，最常见**。默认带 `?sslmode=disable`（内网 / 自签证书）。支持 `WIND_DB_SSLMODE`、`WIND_DB_INSTANCE` |
+| `oracle+oracledb` | [FreePeak db-mcp-server](https://github.com/FreePeak/db-mcp-server) | **Wind 官方 Oracle 版**。纯 Go 驱动 go-ora（Oracle 10.2+，含 Wind 常见的 11.2.0.4），不需要 Instant Client；`read_only` + `max_rows` 护栏（`read_only` 要求账号不持有任何写权限，否则拒绝启动，见 `.env.example` 的 `WIND_DBMCP_READ_ONLY`）。可选 `WIND_DB_SCHEMA`（建议 `WIND`）、`WIND_DB_SID`。为什么不走 dbhub：dbhub 1.5+ 的 Oracle connector 只有 node-oracledb Thin 模式，要求服务器 ≥ 12.1，连 11g 报 `NJS-138` |
+| `mysql+pymysql` | dbhub `mysql://` | |
+| `mariadb+pymysql` | dbhub `mariadb://` | |
+| `postgresql+psycopg2` | dbhub `postgres://` | |
+| `sqlite` | dbhub `sqlite://` | 单机测试 |
 
 ## 数据字典来源
 
@@ -162,15 +160,15 @@ TAG 含义：`[STD]` 标准（默认）/ `[PIT]` 时点快照（回测必用）/
 
 - [Claude Code](https://claude.ai/code) CLI
 - Python 3.8+（系统自带）
-- Node.js（dbhub MCP 通过 `npx` 启动，自动下载）
-- 对应 dialect 的原生驱动（若要从 Python 读数据）：MSSQL → `pyodbc` + ODBC Driver 18；MySQL → `pymysql`；Postgres → `psycopg2`；等
-- Go 工具链（**仅 Oracle 用户需要**，用于编译 FreePeak MCP server）
+- Node.js（非 Oracle：dbhub MCP 通过 `npx` 启动，自动下载）
+- Oracle：**不需要** Node / Go，`setup-mcp.sh` 直接下载 FreePeak 预编译二进制（darwin / linux × arm64 / amd64）
+- 对应 dialect 的 Python 驱动（若要从 Python 批量读数据）：MSSQL → `pyodbc` + ODBC Driver 18；Oracle → `oracledb`（服务器是 11g 时还要 Instant Client 走 thick 模式，路径填 `WIND_ORACLE_CLIENT_LIB_DIR`）；MySQL → `pymysql`；Postgres → `psycopg2`
 
 ## 安全
 
 - `.env` 被 `.gitignore` 排除，不会进 git；`/wind-db:setup` 写入时文件权限 600
 - `setup-mcp.sh` 注册 MCP 时密码做 URL 编码，不在命令行明文裸露
-- MCP 实例固定名 `dbhub-wind`，不污染其他 dbhub 配置
+- MCP 实例固定名 `dbhub-wind` / `dbmcp-wind`，不污染其他配置；Oracle 的 FreePeak 配置文件不含密码（`password_env` 从环境变量读）
 
 > ⚠️ `/wind-db:setup` 通过对话收集密码时，密码会出现在对话历史里。对安全敏感的生产环境，推荐先输占位符跑完向导，再 `vim "$CLAUDE_PLUGIN_DATA/.env"` 手动改密码。
 
@@ -178,7 +176,7 @@ TAG 含义：`[STD]` 标准（默认）/ `[PIT]` 时点快照（回测必用）/
 
 - **字段粒度查询**（`dict.sh <字段名>`）依赖字典全文搜索；纯表名查询用 `-t` 精确模式更快
 - `-l` 输出约 600-1200 行（取决于 `WIND_LIST_DBS` 过滤），建议 `| grep` 按需过滤，不要整份加载到对话
-- Oracle 要走独立路径（FreePeak），工具命名和 dbhub 不同（见 SKILL.md §5.4）
+- Oracle 走 FreePeak，工具名和 dbhub 不同（`query_wind` / `schema_wind`）；且 FreePeak 的 `schema_wind` / `describe_wind` / `filter_tables` 只查登录账号自己的 `USER_*` 视图，对建在 `WIND` schema 下的表返回空，要用 `query_wind` 查 `ALL_*` 视图（SKILL.md §5.4.1 给了现成 SQL）
 - Claude 读数据库返回的字段 comment 时可能过度依赖；SKILL.md §4.1 规定了"权威来源排序 + 来源标注"纪律对抗这个问题
 
 ## 贡献

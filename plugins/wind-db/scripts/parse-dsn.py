@@ -4,11 +4,15 @@
 
 支持的输入格式（自动识别）：
   1. SQLAlchemy:  mssql+pyodbc://user:pass@host:1433/db?driver=ODBC
+                  oracle+oracledb://user:pass@host:1521/?service_name=windb
   2. 标准 URL:    sqlserver://user:pass@host:1433/db?sslmode=disable
+                  oracle://user:pass@host:1521/service_name   （老式 SID：oracle://u:p@h:1521/?sid=ORCL）
   3. JDBC:        jdbc:sqlserver://host:1433;databaseName=db;user=x;password=y
                   jdbc:mysql://host:3306/db?user=x&password=y
+                  jdbc:oracle:thin:@//host:1521/service  或  jdbc:oracle:thin:@host:1521:sid
   4. ADO.NET:     Server=host,1433;Database=db;User Id=x;Password=y;Encrypt=false
   5. 键值散列:    host=x port=y user=z password=w database=d dialect=mssql+pyodbc
+                  （Oracle 可用 service_name= / sid= / schema=）
 
 输出：一行 shell 赋值语句，可直接 `eval` 到当前 shell：
   WIND_DB_DIALECT='mssql+pyodbc'
@@ -17,6 +21,7 @@
   WIND_DB_USER='scott'
   WIND_DB_PASSWORD='tiger'
   WIND_DB_NAME='winddb'
+可选输出：WIND_DB_SSLMODE / WIND_DB_INSTANCE（SQL Server）、WIND_DB_SID / WIND_DB_SCHEMA（Oracle）
 
 失败时：stderr 打错误消息，exit 1。
 """
@@ -50,10 +55,11 @@ SCHEME_TO_DIALECT = {
     "jdbc:postgresql": "postgresql+psycopg2",
     # SQLite
     "sqlite": "sqlite",
-    # Oracle（dbhub 不支持，但我们识别出来可以给清晰错误）
-    "oracle": "oracle+cx_oracle",
-    "oracle+cx_oracle": "oracle+cx_oracle",
-    "jdbc:oracle:thin": "oracle+cx_oracle",
+    # Oracle：统一映射到 python-oracledb（cx_Oracle 已停更且必须装 Instant Client）
+    "oracle": "oracle+oracledb",
+    "oracle+oracledb": "oracle+oracledb",
+    "oracle+cx_oracle": "oracle+oracledb",
+    "jdbc:oracle:thin": "oracle+oracledb",
 }
 
 DEFAULT_PORTS = {
@@ -61,7 +67,7 @@ DEFAULT_PORTS = {
     "mysql+pymysql": "3306",
     "mariadb+pymysql": "3306",
     "postgresql+psycopg2": "5432",
-    "oracle+cx_oracle": "1521",
+    "oracle+oracledb": "1521",
 }
 
 
@@ -134,14 +140,17 @@ def parse_jdbc(s):
         return _parse_url_like(f"{dialect.split('+')[0]}:{body}", dialect)
 
     if scheme_key == "jdbc:oracle:thin":
-        # @//host:1521/service 或 @host:1521:sid
+        # @//host:1521/service（service name）或 @host:1521:sid（老式 SID）
         body = body.lstrip("@").lstrip("/")
-        m2 = re.match(r"([^:/]+)(?::(\d+))?[:/](.+)", body)
+        m2 = re.match(r"([^:/]+)(?::(\d+))?([:/])(.+)", body)
         if not m2:
             return None
         result["WIND_DB_HOST"] = m2.group(1)
         result["WIND_DB_PORT"] = m2.group(2) or DEFAULT_PORTS.get(dialect, "1521")
-        result["WIND_DB_NAME"] = m2.group(3)
+        if m2.group(3) == "/":
+            result["WIND_DB_NAME"] = m2.group(4)      # service name
+        else:
+            result["WIND_DB_SID"] = m2.group(4)       # SID
         return result
 
     return None
@@ -187,6 +196,11 @@ def _parse_url_like(url, known_dialect=None):
             result["WIND_DB_SSLMODE"] = qs["sslmode"][0]
         if "instanceName" in qs:
             result["WIND_DB_INSTANCE"] = qs["instanceName"][0]
+        # Oracle：SQLAlchemy 风格 /?service_name=xxx；dbhub 风格 /?sid=ORCL
+        if "service_name" in qs:
+            result["WIND_DB_NAME"] = qs["service_name"][0]
+        if "sid" in qs:
+            result["WIND_DB_SID"] = qs["sid"][0]
 
     return result
 
@@ -282,7 +296,10 @@ def parse_kv(s):
                          ("database", "WIND_DB_NAME"), ("db", "WIND_DB_NAME"),
                          ("dbname", "WIND_DB_NAME"),
                          ("sslmode", "WIND_DB_SSLMODE"),
-                         ("instance", "WIND_DB_INSTANCE")]:
+                         ("instance", "WIND_DB_INSTANCE"),
+                         ("service_name", "WIND_DB_NAME"),
+                         ("sid", "WIND_DB_SID"),
+                         ("schema", "WIND_DB_SCHEMA")]:
         if k_in in pairs and k_out not in result:
             result[k_out] = pairs[k_in]
     return result
@@ -300,6 +317,9 @@ def parse(s):
         die("看起来是 JDBC URL 但解析失败，请检查格式")
 
     if "://" in s:
+        # 老写法 oracle+cx_oracle:// 的 scheme 含下划线，urlparse 不认；先规范化成 python-oracledb
+        if s.lower().startswith("oracle+cx_oracle://"):
+            s = "oracle+oracledb://" + s[len("oracle+cx_oracle://"):]
         r = _parse_url_like(s)
         if r:
             return r

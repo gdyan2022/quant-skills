@@ -14,11 +14,12 @@ set -euo pipefail
 SCRIPT_DIR="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # .env 优先取 plugin 持久化目录（升级不会丢），fallback plugin 根
-if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "$CLAUDE_PLUGIN_DATA/.env" ]; then
-  ENV_FILE="$CLAUDE_PLUGIN_DATA/.env"
-else
-  ENV_FILE="$SCRIPT_DIR/.env"
-fi
+# $CLAUDE_PLUGIN_DATA 是「当前正在执行的 plugin」的数据目录，在别的 plugin 的会话里会指向别处，
+# 所以只认目录名是 wind-db 的；否则回落 plugin 根
+ENV_FILE="$SCRIPT_DIR/.env"
+case "${CLAUDE_PLUGIN_DATA:-}" in
+  */wind-db|*/wind-db-*) [ -f "$CLAUDE_PLUGIN_DATA/.env" ] && ENV_FILE="$CLAUDE_PLUGIN_DATA/.env" ;;
+esac
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "✗ 未找到 $ENV_FILE" >&2
